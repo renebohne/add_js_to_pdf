@@ -110,8 +110,8 @@ const server = http.createServer(async (req, res) => {
 
                 const html = await readHTMLFile("./upload-success.html");
                 const htmlWithDownload = html.replace(
-                  "",
-                  `<p><a href="${newFilePath}" download>Download the generated file</a></p>`
+                  "FILE_URL",
+                  `<p><a href="${newFilePath}" download>Ausgabe PDF-Datei herunterladen</a></p>`
                 );
 
                 res.writeHead(200, { "Content-Type": "text/html" });
