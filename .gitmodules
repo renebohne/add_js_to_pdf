@@ -1,0 +1,3 @@
+[submodule "JS2PDFInjector"]
+	path = JS2PDFInjector
+	url = https://github.com/renebohne/JS2PDFInjector
