@@ -41,7 +41,12 @@ function readHTMLFile(filename) {
 }
 
 const server = http.createServer(async (req, res) => {
-  if (req.url === "/upload" && req.method.toLowerCase() === "post") {
+  // Parse the URL
+  const parsedUrl = url.parse(req.url);
+  const pathname = parsedUrl.pathname;
+
+  // Check if the request is for the upload endpoint (matches /upload at the end of the path)
+  if (pathname.endsWith("/upload") && req.method.toLowerCase() === "post") {
     const form = new formidable.IncomingForm();
 
     form.parse(req, (err, fields, files) => {
@@ -145,42 +150,42 @@ const server = http.createServer(async (req, res) => {
         res.end("Error saving file 2");
       });
     });
-  } else if ( (req.url.indexOf("/uploads")>=0) && req.method.toLowerCase() === "get") {
+  } else if ( (req.url.indexOf("/uploads/")>=0) && req.method.toLowerCase() === "get") {
     console.log(`${req.method} ${req.url}`);
 
-    // parse URL
-    const parsedUrl = url.parse(req.url);
+    // Extract the path part starting from /uploads/
+    // This allows the app to be served under a subpath (e.g. /pdfinject/uploads/...)
+    const uploadIndex = req.url.indexOf("/uploads/");
+    const relativePath = req.url.substring(uploadIndex);
 
-    // extract URL path
-    // Avoid https://en.wikipedia.org/wiki/Directory_traversal_attack
-    // e.g curl --path-as-is http://localhost:9000/../fileInDanger.txt
-    // by limiting the path to current directory only
+    // Avoid Directory traversal
     const sanitizePath = path
-      .normalize(parsedUrl.pathname)
+      .normalize(relativePath)
       .replace(/^(\.\.[\/\\])+/, "");
-    let pathname = path.join(__dirname, sanitizePath);
+      
+    let localPathname = path.join(__dirname, sanitizePath);
 
-    fs.exists(pathname, function (exist) {
+    fs.exists(localPathname, function (exist) {
       if (!exist) {
         // if the file is not found, return 404
         res.statusCode = 404;
-        res.end(`File ${pathname} not found!`);
+        res.end(`File ${localPathname} not found!`);
         return;
       }
 
       // if is a directory, then look for index.html
-      if (fs.statSync(pathname).isDirectory()) {
-        pathname += "/index.html";
+      if (fs.statSync(localPathname).isDirectory()) {
+        localPathname += "/index.html";
       }
 
       // read file from file system
-      fs.readFile(pathname, function (err, data) {
+      fs.readFile(localPathname, function (err, data) {
         if (err) {
           res.statusCode = 500;
           res.end(`Error getting the file: ${err}.`);
         } else {
           // based on the URL path, extract the file extention. e.g. .js, .doc, ...
-          const ext = path.parse(pathname).ext;
+          const ext = path.parse(localPathname).ext;
           // if the file is found, set Content-type and send data
           res.setHeader("Content-type", mimeType[ext] || "text/plain");
           res.end(data);
