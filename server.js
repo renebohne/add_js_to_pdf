@@ -3,7 +3,8 @@ const url = require("url");
 const path = require('path');
 const formidable = require("formidable");
 const fs = require("node:fs");
-const { exec } = require("node:child_process");
+const { spawn } = require("node:child_process");
+const crypto = require("node:crypto");
 
 const config = require("./config"); // Import the configuration
 
@@ -60,13 +61,13 @@ const server = http.createServer(async (req, res) => {
       const uploadedFile1 = files.file1[0];
       const uploadedFile2 = files.file2[0];
 
-      if (uploadedFile1.originalFilename.split(".").pop() !== "pdf") {
+      if (uploadedFile1.originalFilename.split(".").pop().toLowerCase() !== "pdf") {
         res.writeHead(400, { "Content-Type": "text/plain" });
         res.end("Datei 1 muss eine PDF-Datei sein.");
         return;
       }
 
-      if (uploadedFile2.originalFilename.split(".").pop() !== "js") {
+      if (uploadedFile2.originalFilename.split(".").pop().toLowerCase() !== "js") {
         res.writeHead(400, { "Content-Type": "text/plain" });
         res.end("Datei 2 muss eine JS-Datei sein.");
         return;
@@ -77,14 +78,17 @@ const server = http.createServer(async (req, res) => {
 
       fs.mkdirSync(uploadDir, { recursive: true });
 
-      const fileStream1 = fs.createWriteStream(
-        `${uploadDir}/${uploadedFile1.originalFilename}`
-      );
+      // SECURITY: Generate random filenames to prevent overwriting and traversal attacks
+      const safeName1 = crypto.randomUUID() + ".pdf";
+      const safeName2 = crypto.randomUUID() + ".js";
+      
+      const filePath1 = path.join(uploadDir, safeName1);
+      const filePath2 = path.join(uploadDir, safeName2);
+
+      const fileStream1 = fs.createWriteStream(filePath1);
       fs.createReadStream(uploadedFile1.filepath).pipe(fileStream1);
 
-      const fileStream2 = fs.createWriteStream(
-        `${uploadDir}/${uploadedFile2.originalFilename}`
-      );
+      const fileStream2 = fs.createWriteStream(filePath2);
       fs.createReadStream(uploadedFile2.filepath).pipe(fileStream2);
 
       let filesSaved = 0;
@@ -92,45 +96,87 @@ const server = http.createServer(async (req, res) => {
         filesSaved++;
         if (filesSaved === 2) {
           try {
-            const filePaths = [
-              `${uploadDir}/${uploadedFile1.originalFilename}`,
-              `${uploadDir}/${uploadedFile2.originalFilename}`,
-            ];
+            // SECURITY: Use spawn instead of exec to prevent Command Injection
+            // Arguments are passed as an array, so 'rm -rf /' would just be treated as a filename
+            const scriptArgs = ["./JS2PDFInjector/JS2PDFInjector-1.0.jar", filePath1, filePath2];
+            
+            console.log(`Executing java -jar ${scriptArgs.join(" ")}`);
+            
+            const child = spawn("java", ["-jar", ...scriptArgs]);
 
-            const scriptPath = "./your-script.sh";
-            const command = `${scriptPath} ${filePaths.join(" ")}`;
+            let stdoutData = "";
+            let stderrData = "";
 
-            exec(command, async (error, stdout, stderr) => {
-              if (error) {
-                console.error(`Error executing script: ${error}`);
-                return;
-              }
-              console.log(`stdout: ${stdout}`);
-              console.error(`stderr: ${stderr}`);
-
-              try {
-                // Assuming your script outputs the new filename to stdout
-                const newFileName = stdout.trim();
-                const newFilePath = `${uploadDir}/js_injected_${uploadedFile1.originalFilename}`;
-
-                const html = await readHTMLFile("./upload-success.html");
-                const htmlWithDownload = html.replace(
-                  "FILE_URL",
-                  `<p><a href="${newFilePath}" download>Ausgabe PDF-Datei herunterladen</a></p>`
-                );
-
-                res.writeHead(200, { "Content-Type": "text/html" });
-                res.end(htmlWithDownload);
-              } catch (err) {
-                console.error(err);
-                res.writeHead(500, { "Content-Type": "text/plain" });
-                res.end("Error loading success page");
-              }
+            child.stdout.on("data", (data) => {
+              stdoutData += data;
             });
+
+            child.stderr.on("data", (data) => {
+              stderrData += data;
+            });
+
+            child.on("close", async (code) => {
+                if (code !== 0) {
+                    console.error(`Process exited with code ${code}`);
+                    console.error(`stderr: ${stderrData}`);
+                    res.writeHead(500, { "Content-Type": "text/plain" });
+                    res.end("Error processing PDF");
+                    return;
+                }
+
+                console.log(`stdout: ${stdoutData}`);
+                
+                try {
+                    // The Java tool creates a new file. We need to find it.
+                    // Usually it prefixes "js_injected_" to the input filename.
+                    // Since we renamed the input to a UUID, the output will be "js_injected_UUID.pdf"
+                    
+                    const outputFilename = `js_injected_${safeName1}`;
+                    const outputFilePath = path.join(uploadDir, outputFilename);
+                    
+                    // Verify the file actually exists
+                    if (!fs.existsSync(outputFilePath)) {
+                         console.error("Output file not found:", outputFilePath);
+                         // Fallback: Check if the tool output the filename (stdout) and use that if it differs
+                         // But for now, rely on standard naming convention of the tool
+                         res.writeHead(500, { "Content-Type": "text/plain" });
+                         res.end("Error: Output file was not created.");
+                         return;
+                    }
+
+                    // For the user, we can make the download link look nicer or just use the system name
+                    // The 'download' attribute in HTML allows specifying a friendly name
+                    const originalNameNoExt = path.parse(uploadedFile1.originalFilename).name;
+                    const downloadName = `injected_${originalNameNoExt}.pdf`;
+
+                    // Construct the URL path to the file
+                    // We need to serve this file via the static file handler
+                    // The path on disk is ./uploads/timestamp/filename
+                    // The URL should be .../uploads/timestamp/filename
+                    
+                    // Note: Our static handler expects /uploads/...
+                    const downloadUrl = `uploads/${timestamp}/${outputFilename}`;
+
+                    const html = await readHTMLFile("./upload-success.html");
+                    const htmlWithDownload = html.replace(
+                        "FILE_URL",
+                        `<p><a href="${downloadUrl}" download="${downloadName}" class="btn btn-success">Ausgabe PDF-Datei herunterladen</a></p>`
+                    );
+
+                    res.writeHead(200, { "Content-Type": "text/html" });
+                    res.end(htmlWithDownload);
+
+                } catch (err) {
+                    console.error(err);
+                    res.writeHead(500, { "Content-Type": "text/plain" });
+                    res.end("Error loading success page");
+                }
+            });
+
           } catch (err) {
             console.error(err);
             res.writeHead(500, { "Content-Type": "text/plain" });
-            res.end("Error loading success page");
+            res.end("Error starting process");
           }
         }
       };

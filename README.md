@@ -28,7 +28,7 @@ You can run this application using Docker and Docker Compose. This is ideal for 
     docker compose up -d --build
     ```
 
-3.  The application will be available at `http://<your-server-ip>:3000`.
+3.  The application will be available at `http://<your-server-ip>:3010`.
 
 ### Using with Dockge
 
@@ -38,7 +38,7 @@ If you are using [Dockge](https://github.com/louislam/dockge), the easiest way t
 2.  **Clone the Repository**:
     ```bash
     cd /opt/stacks
-    git clone --recurse-submodules <your-repository-url> js-to-pdf
+    git clone --recurse-submodules https://github.com/renebohne/add_js_to_pdf.git js-to-pdf
     ```
     *(Note: If you forget `--recurse-submodules`, the Docker build will automatically attempt to fetch the missing dependency for you.)*
 
