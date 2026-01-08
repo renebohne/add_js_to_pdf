@@ -15,7 +15,7 @@ You can run this application using Docker and Docker Compose. This is ideal for 
 
 1.  Clone this repository to your server (ensure you include submodules):
     ```bash
-    git clone --recurse-submodules <your-repository-url>
+    git clone --recurse-submodules https://github.com/renebohne/add_js_to_pdf.git
     cd add_js_to_pdf
     ```
     *If you have already cloned the repository without submodules, run:*
