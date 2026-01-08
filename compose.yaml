@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  js-to-pdf:
+    build: .
+    container_name: js-to-pdf
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./uploads:/app/uploads
+    restart: unless-stopped
